@@ -4,6 +4,8 @@ const rl = @cImport({
     @cInclude("raylib.h");
 });
 
+const gb = @import("gameboy.zig");
+
 pub fn main() !void {
     rl.InitWindow(800, 600, "gameboy-emulator");
     defer rl.CloseWindow();

@@ -7,6 +7,8 @@ const rl = @cImport({
 const gb = @import("gameboy.zig");
 
 pub fn main() !void {
+    gb.step();
+
     rl.InitWindow(800, 600, "gameboy-emulator");
     defer rl.CloseWindow();
 

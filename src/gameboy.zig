@@ -15,15 +15,16 @@ const Opcode = struct {
 
 const opcode_table = [_]Opcode{
     .{ .description = "NOP", .size = 1, .cycles = 1, .exec = nop },
-    .{ .description = "LD BC, d16", .size = 3, .cycles = 3, .exec = load(WordReg.BC, WordReg.DE) },
-    .{ .description = "LD (BC), A", .size = 3, .cycles = 3, .exec = load(WordReg.PSW, WordReg.BC) },
-    .{ .description = "LD A, d8", .size = 2, .cycles = 3, .exec = load(ByteReg.A, RomByte{}) },
+    .{ .description = "LD BC, d16", .size = 3, .cycles = 3, .exec = load(WordReg.BC, LoadWord.ROM) },
+    .{ .description = "LD (BC), A", .size = 3, .cycles = 3, .exec = load(Indirect{WordReg.BC}, ByteReg.A) },
+    .{ .description = "LD A, d8", .size = 2, .cycles = 3, .exec = load(ByteReg.A, LoadByte.ROM) },
 };
 
 const ByteReg = enum { A, F, B, C, D, E, H, L };
 const WordReg = enum { PSW, BC, DE, HL };
-const RomByte = struct {};
-const RomWord = struct {};
+const LoadByte = enum { ROM };
+const LoadWord = enum { ROM };
+const Indirect = struct { WordReg };
 
 fn to_byte_regs(comptime reg: WordReg) struct { ByteReg, ByteReg } {
     return comptime switch (reg) {
@@ -53,30 +54,46 @@ fn write_word_reg(comptime reg: WordReg, value: u16) void {
     regs[@intFromEnum(byte_regs[1])] = @intCast(value);
 }
 
-fn read_byte_rom(comptime _: RomByte) u8 {
-    return mem[pc + 1];
+fn load_byte(comptime src: LoadByte) u8 {
+    return switch (src) {
+        .ROM => mem[pc + 1],
+    };
 }
 
-fn read_word_rom(comptime _: RomWord) u16 {
-    return @as(u16, mem[pc + 1]) << 8 | @as(u16, mem[pc + 2]);
+fn load_word(comptime src: LoadWord) u16 {
+    return switch (src) {
+        .ROM => @as(u16, mem[pc + 1]) << 8 | @as(u16, mem[pc + 2]),
+    };
+}
+
+fn load_indirect(comptime src: Indirect) u8 {
+    const address = read_word_reg(src[0]);
+    return mem[address];
+}
+
+fn write_indirect(comptime dst: Indirect, value: u8) void {
+    const address = read_word_reg(dst[0]);
+    mem[address] = value;
 }
 
 fn load(comptime dest: anytype, comptime src: anytype) fn () void {
     const read = comptime switch (@TypeOf(src)) {
         ByteReg => read_byte_reg,
         WordReg => read_word_reg,
-        RomByte => read_byte_rom,
-        RomWord => read_word_rom,
+        LoadByte => load_byte,
+        LoadWord => load_word,
+        Indirect => load_indirect,
         else => @compileError("Unsupported source operand: " ++ @typeName(@TypeOf(src))),
     };
     const write = comptime switch (@TypeOf(dest)) {
         ByteReg => write_byte_reg,
         WordReg => write_word_reg,
+        Indirect => write_indirect,
         else => @compileError("Unsupported destination operand: " ++ @typeName(@TypeOf(src))),
     };
 
     return struct {
-        pub fn load() void {
+        fn load() void {
             write(dest, read(src));
         }
     }.load;

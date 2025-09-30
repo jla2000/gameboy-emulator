@@ -34,66 +34,50 @@ fn to_byte_regs(comptime reg: WordReg) struct { ByteReg, ByteReg } {
     };
 }
 
-fn read_byte_reg(comptime reg: ByteReg) fn () void {
-    return struct {
-        pub fn read() u8 {
-            return regs[@intFromEnum(reg)];
-        }
-    }.read;
+fn read_byte_reg(comptime reg: ByteReg) u8 {
+    return regs[@intFromEnum(reg)];
 }
 
-fn write_byte_reg(comptime reg: ByteReg) fn (u8) void {
-    return struct {
-        pub fn write(value: u8) void {
-            regs[@intFromEnum(reg)] = value;
-        }
-    }.write;
+fn write_byte_reg(comptime reg: ByteReg, value: u8) void {
+    regs[@intFromEnum(reg)] = value;
 }
 
-fn read_word_reg(comptime reg: WordReg) fn () u16 {
+fn read_word_reg(comptime reg: WordReg) u16 {
     const byte_regs = to_byte_regs(reg);
-    return struct {
-        pub fn read() u16 {
-            return @as(u16, regs[@intFromEnum(byte_regs[0])]) << 8 | @as(u16, regs[@intFromEnum(byte_regs[1])]);
-        }
-    }.read;
+    return @as(u16, regs[@intFromEnum(byte_regs[0])]) << 8 | @as(u16, regs[@intFromEnum(byte_regs[1])]);
 }
 
-fn write_word_reg(comptime reg: WordReg) fn (u16) void {
+fn write_word_reg(comptime reg: WordReg, value: u16) void {
     const byte_regs = to_byte_regs(reg);
-    return struct {
-        pub fn write(value: u16) void {
-            regs[@intFromEnum(byte_regs[0])] = @intCast(value >> 8);
-            regs[@intFromEnum(byte_regs[1])] = @intCast(value);
-        }
-    }.write;
+    regs[@intFromEnum(byte_regs[0])] = @intCast(value >> 8);
+    regs[@intFromEnum(byte_regs[1])] = @intCast(value);
 }
 
-fn read_byte_rom() u8 {
+fn read_byte_rom(comptime _: RomByte) u8 {
     return mem[pc + 1];
 }
 
-fn read_word_rom() u16 {
+fn read_word_rom(comptime _: RomWord) u16 {
     return @as(u16, mem[pc + 1]) << 8 | @as(u16, mem[pc + 2]);
 }
 
 fn load(comptime dest: anytype, comptime src: anytype) fn () void {
     const read = comptime switch (@TypeOf(src)) {
-        ByteReg => read_byte_reg(src),
-        WordReg => read_word_reg(src),
+        ByteReg => read_byte_reg,
+        WordReg => read_word_reg,
         RomByte => read_byte_rom,
         RomWord => read_word_rom,
         else => @compileError("Unsupported source operand: " ++ @typeName(@TypeOf(src))),
     };
     const write = comptime switch (@TypeOf(dest)) {
-        ByteReg => write_byte_reg(dest),
-        WordReg => write_word_reg(dest),
+        ByteReg => write_byte_reg,
+        WordReg => write_word_reg,
         else => @compileError("Unsupported destination operand: " ++ @typeName(@TypeOf(src))),
     };
 
     return struct {
         pub fn load() void {
-            write(read());
+            write(dest, read(src));
         }
     }.load;
 }

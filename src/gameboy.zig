@@ -57,7 +57,7 @@ const Operand = union(OperandTag) {
         }
     }
 
-    pub fn read(self: Operand, comptime T: type) T {
+    pub fn read(comptime self: Operand, comptime T: type) T {
         return switch (self) {
             OperandTag.byte_reg => |reg| regs[@intFromEnum(reg)],
             else => unreachable,

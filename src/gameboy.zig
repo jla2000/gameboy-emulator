@@ -15,13 +15,15 @@ const Opcode = struct {
 
 const opcode_table = [_]Opcode{
     .{ .description = "NOP", .size = 1, .cycles = 1, .exec = nop },
-    .{ .description = "LD BC, d16", .size = 3, .cycles = 3, .exec = load(.{ .word_reg = .{ .BC, .Normal } }, .word_const) },
-    .{ .description = "LD (BC), A", .size = 3, .cycles = 3, .exec = load(.{ .word_reg = .{ .BC, .Indirect } }, .{ .byte_reg = .{ .A, .Normal } }) },
+    .{ .description = "LD BC, d16", .size = 3, .cycles = 3, .exec = load(.{ .word_reg = .BC }, .word_const) },
+    .{ .description = "LD (BC), A", .size = 3, .cycles = 3, .exec = load(.{ .word_reg = .BC }, .{ .byte_reg = .A }) },
 };
 
 const OperandTag = enum {
     byte_reg,
     word_reg,
+    byte_reg_indirect,
+    word_reg_indirect,
     byte_const,
     word_const,
 };
@@ -29,72 +31,79 @@ const OperandTag = enum {
 const ByteReg = enum { A, F, B, C, D, E, H, L };
 const WordReg = enum { PSW, BC, DE, HL };
 
-const Addressing = enum {
-    Normal,
-    Indirect,
-};
-
 const Operand = union(OperandTag) {
-    byte_reg: struct { ByteReg, Addressing },
-    word_reg: struct { WordReg, Addressing },
+    byte_reg: ByteReg,
+    word_reg: WordReg,
+    byte_reg_indirect: ByteReg,
+    word_reg_indirect: WordReg,
     byte_const,
     word_const,
+
+    pub fn value_type(comptime self: Operand) type {
+        return comptime switch (self) {
+            .byte_reg => u8,
+            .word_reg => u16,
+            .byte_const => u8,
+            .word_const => u16,
+            else => unreachable,
+        };
+    }
+
+    pub fn write(comptime self: Operand, comptime T: type, value: T) void {
+        switch (self) {
+            OperandTag.byte_reg => |reg| regs[@intFromEnum(reg)] = value,
+            OperandTag.word_reg => |reg| write_word_reg(reg, value),
+            else => unreachable,
+        }
+    }
+
+    pub fn read(self: Operand, comptime T: type) T {
+        return switch (self) {
+            OperandTag.byte_reg => |reg| regs[@intFromEnum(reg)],
+            else => unreachable,
+        };
+    }
 };
 
 pub fn nop() void {}
 
+fn word_to_byte_regs(comptime reg: WordReg) struct { ByteReg, ByteReg } {
+    return comptime switch (reg) {
+        .PSW => .{ .A, .F },
+        .BC => .{ .B, .C },
+        .DE => .{ .D, .E },
+        .HL => .{ .H, .L },
+    };
+}
+
+fn write_word_reg(comptime reg: WordReg, value: u16) void {
+    const byte_regs = word_to_byte_regs(reg);
+    regs[@intFromEnum(byte_regs[0])] = @intCast(value >> 8);
+    regs[@intFromEnum(byte_regs[1])] = @intCast(value);
+}
+
+fn read_word_reg(comptime reg: WordReg) u16 {
+    const byte_regs = word_to_byte_regs(reg);
+    return @as(u16, regs[@intFromEnum(byte_regs[0])]) << 8 | @as(u16, regs[@intFromEnum(byte_regs[1])]);
+}
+
+fn read_word(address: u16) u16 {
+    return @as(u16, mem[address]) << 8 | @as(u16, mem[address + 1]);
+}
+
+fn write_word(address: u16, value: u16) void {
+    mem[address] = @intCast(value >> 8);
+    mem[address + 1] = @intCast(value);
+}
+
 pub fn load(comptime dest_reg: Operand, comptime src_reg: Operand) fn () void {
     return struct {
         pub fn load() void {
-            var value = std.mem.zeroes(comptime switch (dest_reg) {
-                .byte_reg => u8,
-                .word_reg => u16,
-                else => unreachable,
-            });
+            const dst_type = dest_reg.value_type();
+            const src_type = src_reg.value_type();
 
-            switch (src_reg) {
-                OperandTag.byte_reg => |byte_reg| value = regs[@intFromEnum(byte_reg[0])],
-                OperandTag.word_reg => |word_reg| {
-                    const upper, const lower = switch (word_reg[0]) {
-                        .PSW => .{ .A, .F },
-                        .BC => .{ .B, .C },
-                        .DE => .{ .D, .E },
-                        .HL => .{ .H, .L },
-                    };
-                    value = @as(u16, regs[@intFromEnum(upper)]) << 8 | @as(u16, regs[@intFromEnum(lower)]);
-
-                    switch (word_reg[1]) {
-                        Addressing.Normal => {},
-                        Addressing.Indirect => value = mem[value],
-                    }
-                },
-                OperandTag.byte_const => value = mem[pc + 1],
-                OperandTag.word_const => value = @as(u16, mem[pc + 1]) << 8 | @as(u16, mem[pc + 2]),
-            }
-
-            switch (dest_reg) {
-                OperandTag.byte_reg => |byte_reg| regs[@intFromEnum(byte_reg[0])] = value,
-                OperandTag.word_reg => |word_reg| {
-                    const upper: ByteReg, const lower: ByteReg = switch (word_reg[0]) {
-                        .PSW => .{ .A, .F },
-                        .BC => .{ .B, .C },
-                        .DE => .{ .D, .E },
-                        .HL => .{ .H, .L },
-                    };
-                    switch (word_reg[1]) {
-                        Addressing.Normal => {
-                            regs[@intFromEnum(upper)] = @intCast(value >> 8);
-                            regs[@intFromEnum(lower)] = @intCast(value);
-                        },
-                        Addressing.Indirect => {
-                            const addr = @as(u16, regs[@intFromEnum(upper)]) << 8 | @as(u16, regs[@intFromEnum(lower)]);
-                            mem[addr] = @intCast(value >> 8);
-                            mem[addr + 1] = @intCast(value);
-                        },
-                    }
-                },
-                else => unreachable,
-            }
+            const value = src_reg.read(src_type);
+            dest_reg.write(dst_type, value);
         }
     }.load;
 }

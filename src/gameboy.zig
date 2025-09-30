@@ -76,24 +76,24 @@ fn write_indirect(comptime dst: Indirect, value: u8) void {
 }
 
 fn load(comptime dest: anytype, comptime src: anytype) Opcode {
-    const read, const size = comptime switch (@TypeOf(src)) {
-        ByteReg => .{ read_byte_reg, 1 },
-        WordReg => .{ read_word_reg, 1 },
-        LoadByte => .{ load_byte, 2 },
-        LoadWord => .{ load_word, 3 },
-        Indirect => .{ load_indirect, 1 },
+    const read, const read_size, const read_cycles = comptime switch (@TypeOf(src)) {
+        ByteReg => .{ read_byte_reg, 0, 0 },
+        WordReg => .{ read_word_reg, 0, 0 },
+        LoadByte => .{ load_byte, 1, 1 },
+        LoadWord => .{ load_word, 2, 2 },
+        Indirect => .{ load_indirect, 0, 1 },
         else => @compileError("Unsupported source operand: " ++ @typeName(@TypeOf(src))),
     };
-    const write = comptime switch (@TypeOf(dest)) {
-        ByteReg => write_byte_reg,
-        WordReg => write_word_reg,
-        Indirect => write_indirect,
+    const write, const write_cycles = comptime switch (@TypeOf(dest)) {
+        ByteReg => .{ write_byte_reg, 0 },
+        WordReg => .{ write_word_reg, 0 },
+        Indirect => .{ write_indirect, 1 },
         else => @compileError("Unsupported destination operand: " ++ @typeName(@TypeOf(src))),
     };
 
     return .{
-        .cycles = 1,
-        .size = size,
+        .cycles = 1 + read_cycles + write_cycles,
+        .size = 1 + read_size,
         .description = "LD " ++ format_operand(dest) ++ ", " ++ format_operand(src),
         .exec = struct {
             fn load() void {

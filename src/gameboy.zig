@@ -14,10 +14,9 @@ const Opcode = struct {
 };
 
 const opcode_table = [_]Opcode{
-    .{ .description = "NOP", .size = 1, .cycles = 1, .exec = nop },
-    .{ .description = "LD BC, d16", .size = 3, .cycles = 3, .exec = load(WordReg.BC, LoadWord.ROM) },
-    .{ .description = "LD (BC), A", .size = 3, .cycles = 3, .exec = load(Indirect{WordReg.BC}, ByteReg.A) },
-    .{ .description = "LD A, d8", .size = 2, .cycles = 3, .exec = load(ByteReg.A, LoadByte.ROM) },
+    nop(),
+    load(WordReg.BC, LoadWord.ROM),
+    load(Indirect{WordReg.BC}, ByteReg.A),
 };
 
 const ByteReg = enum { A, F, B, C, D, E, H, L };
@@ -76,13 +75,13 @@ fn write_indirect(comptime dst: Indirect, value: u8) void {
     mem[address] = value;
 }
 
-fn load(comptime dest: anytype, comptime src: anytype) fn () void {
-    const read = comptime switch (@TypeOf(src)) {
-        ByteReg => read_byte_reg,
-        WordReg => read_word_reg,
-        LoadByte => load_byte,
-        LoadWord => load_word,
-        Indirect => load_indirect,
+fn load(comptime dest: anytype, comptime src: anytype) Opcode {
+    const read, const size = comptime switch (@TypeOf(src)) {
+        ByteReg => .{ read_byte_reg, 1 },
+        WordReg => .{ read_word_reg, 1 },
+        LoadByte => .{ load_byte, 2 },
+        LoadWord => .{ load_word, 3 },
+        Indirect => .{ load_indirect, 1 },
         else => @compileError("Unsupported source operand: " ++ @typeName(@TypeOf(src))),
     };
     const write = comptime switch (@TypeOf(dest)) {
@@ -92,14 +91,34 @@ fn load(comptime dest: anytype, comptime src: anytype) fn () void {
         else => @compileError("Unsupported destination operand: " ++ @typeName(@TypeOf(src))),
     };
 
-    return struct {
-        fn load() void {
-            write(dest, read(src));
-        }
-    }.load;
+    return .{
+        .cycles = 1,
+        .size = size,
+        .description = "LD " ++ format_operand(dest) ++ ", " ++ format_operand(src),
+        .exec = struct {
+            fn load() void {
+                write(dest, read(src));
+            }
+        }.load,
+    };
 }
 
-pub fn nop() void {}
+fn format_operand(comptime operand: anytype) []const u8 {
+    return comptime switch (@TypeOf(operand)) {
+        ByteReg => @tagName(operand),
+        WordReg => @tagName(operand),
+        LoadByte => "d8",
+        LoadWord => "d16",
+        Indirect => "(" ++ @tagName(operand[0]) ++ ")",
+        else => @compileError("Unknown operand: " ++ @typeName(@TypeOf(operand))),
+    };
+}
+
+pub fn nop() Opcode {
+    return .{ .description = "NOP", .size = 1, .cycles = 1, .exec = struct {
+        fn nop() void {}
+    }.nop };
+}
 
 pub fn step() void {
     const opcode = mem[pc];

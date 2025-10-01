@@ -1,5 +1,8 @@
 const std = @import("std");
 
+pub const DISPLAY_WIDTH = 160;
+pub const DISPLAY_HEIGHT = 144;
+
 var regs = std.mem.zeroes([8]u8);
 var mem = std.mem.zeroes([1024]u8);
 var pc: u16 = 0;
